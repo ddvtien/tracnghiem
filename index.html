@@ -172,6 +172,69 @@
       color:#667085;
     }
 
+    .mode-section{
+      margin-top:16px;
+      padding-top:14px;
+      border-top:1px solid #e4e7ec;
+    }
+
+    .mode-title{
+      display:block;
+      font-size:13px;
+      font-weight:700;
+      color:#475467;
+      margin-bottom:9px;
+    }
+
+    .mode-options{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    .mode-option{
+      position:relative;
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      min-height:64px;
+      padding:12px 13px;
+      border:1.5px solid #d7dfeb;
+      border-radius:11px;
+      background:#fff;
+      cursor:pointer;
+      transition:.15s;
+    }
+
+    .mode-option:hover{
+      border-color:#9b8cff;
+      background:#fbfaff;
+    }
+
+    .mode-option:has(input:checked){
+      border:2px solid var(--primary);
+      background:var(--primary-soft);
+    }
+
+    .mode-option input{
+      margin:3px 0 0;
+      accent-color:var(--primary);
+      flex:0 0 auto;
+    }
+
+    .mode-option strong{
+      display:block;
+      font-size:13px;
+      margin-bottom:3px;
+    }
+
+    .mode-option small{
+      display:block;
+      color:#667085;
+      line-height:1.4;
+      font-size:11px;
+    }
+
     .tip{
       margin-top:18px;
       border:1px solid #d9e2ef;
@@ -439,6 +502,7 @@
       .upload-card,.main-card,.result-card{padding:18px}
       .settings{grid-template-columns:1fr}
       .range-inputs{grid-template-columns:1fr 1fr}
+      .mode-options{grid-template-columns:1fr}
       .question-map{grid-template-columns:repeat(6,1fr)}
       .question-text{font-size:17px}
       .actions{grid-template-columns:1fr 1fr}
@@ -486,6 +550,27 @@
           </div>
         </div>
         <div id="rangeHint" class="range-hint">Hãy tải đề để chọn khoảng câu.</div>
+
+        <div class="mode-section">
+          <span class="mode-title">Cách sắp xếp đề</span>
+          <div class="mode-options">
+            <label class="mode-option">
+              <input type="radio" name="quizMode" value="keep" checked>
+              <span>
+                <strong>Giữ nguyên</strong>
+                <small>Giữ nguyên thứ tự câu hỏi và các đáp án A/B/C/D.</small>
+              </span>
+            </label>
+
+            <label class="mode-option">
+              <input type="radio" name="quizMode" value="shuffle">
+              <span>
+                <strong>Trộn câu hỏi + đáp án</strong>
+                <small>Trộn thứ tự câu và trộn các phương án trả lời.</small>
+              </span>
+            </label>
+          </div>
+        </div>
       </div>
       <button id="startBtn" class="success" disabled>Bắt đầu làm bài</button>
     </div>
@@ -641,6 +726,40 @@
       .replace(/^\s*\*\s*/, "")
       .replace(/\s*\*\s*$/, "")
       .trim();
+  }
+
+  function shuffleArray(items){
+    const arr = [...items];
+    for (let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function shuffleAnswersForQuestion(question){
+    const shuffled = shuffleArray(
+      question.answers.map(a => ({
+        originalLetter: a.letter,
+        text: a.text
+      }))
+    );
+
+    const relabeled = shuffled.map((a, index) => ({
+      letter: String.fromCharCode(65 + index),
+      text: a.text,
+      originalLetter: a.originalLetter
+    }));
+
+    let newCorrect = null;
+    const correctItem = relabeled.find(a => a.originalLetter === question.correct);
+    if (correctItem) newCorrect = correctItem.letter;
+
+    return {
+      ...question,
+      answers: relabeled.map(({letter, text}) => ({letter, text})),
+      correct: newCorrect
+    };
   }
 
   function parseQuestions(text){
@@ -845,7 +964,7 @@
       (noKey
         ? "<br>⚠️ Có <b>" + noKey + "</b> câu chưa nhận diện được đáp án đúng. Bạn nên kiểm tra cách đánh dấu <code>*</code> trong file."
         : "<br>✅ Đã nhận diện đáp án đúng cho tất cả câu.") +
-      "<br>ℹ️ Thứ tự câu và thứ tự đáp án được giữ nguyên, <b>không trộn</b>.";
+      "<br>ℹ️ Bạn có thể chọn <b>Giữ nguyên</b> hoặc <b>Trộn câu hỏi + đáp án</b> trước khi bắt đầu.";
 
     parseInfo.classList.remove("hidden");
   }
@@ -945,12 +1064,25 @@
       return;
     }
 
-    // Ví dụ từ câu 10 đến câu 30 => lấy câu 10...30, tổng cộng 21 câu.
-    // KHÔNG TRỘN: giữ nguyên thứ tự câu và đáp án trong file.
-    quizQuestions = parsedQuestions.slice(from - 1, to).map(q => ({
+    // Ví dụ từ câu 10 đến câu 30 => trước tiên chỉ lấy đúng câu 10...30.
+    let selectedQuestions = parsedQuestions.slice(from - 1, to).map(q => ({
       ...q,
       answers: q.answers.map(a => ({...a}))
     }));
+
+    const quizMode =
+      document.querySelector('input[name="quizMode"]:checked')?.value || "keep";
+
+    if (quizMode === "shuffle"){
+      // Trộn đáp án từng câu và cập nhật lại đáp án đúng tương ứng.
+      selectedQuestions = selectedQuestions.map(q => shuffleAnswersForQuestion(q));
+
+      // Sau đó trộn thứ tự câu hỏi trong đúng khoảng đã chọn.
+      quizQuestions = shuffleArray(selectedQuestions);
+    } else {
+      // Giữ nguyên hoàn toàn theo file Word.
+      quizQuestions = selectedQuestions;
+    }
 
     userAnswers = new Array(quizQuestions.length).fill(null);
     current = 0;
@@ -1022,7 +1154,9 @@
     const q = quizQuestions[current];
     if (!q) return;
 
-    qCount.textContent = "CÂU " + (current + 1) + " / " + quizQuestions.length;
+    const sourceNo = q.originalNumber ? " • Câu gốc " + q.originalNumber : "";
+    qCount.textContent =
+      "CÂU " + (current + 1) + " / " + quizQuestions.length + sourceNo;
     questionText.textContent = q.text;
 
     answerStatus.textContent = userAnswers[current] ? "Đã trả lời" : "Chưa trả lời";
@@ -1176,7 +1310,7 @@
       return;
     }
 
-    // Giữ nguyên thứ tự câu sai theo đề gốc, KHÔNG TRỘN
+    // Giữ nguyên thứ tự các câu sai ở lần làm vừa rồi
     quizQuestions = wrongQuestions;
     userAnswers = new Array(quizQuestions.length).fill(null);
     current = 0;
